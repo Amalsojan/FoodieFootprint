@@ -152,68 +152,65 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let isFirstLoad = true; // Track if this is the first platform switch
 
+const PLATFORMS = {
+    zomato: {
+        name: "Zomato",
+        theme: "zomato-theme",
+        dataKey: "zomatoData",
+        syncKey: "lastSyncZomato",
+        color: "#E23744",
+        pieColors: ['#CB202D', '#2D2D2D', '#FF7E8B', '#E23744', '#B5B5B5']
+    },
+    swiggy: {
+        name: "Swiggy",
+        theme: "swiggy-theme",
+        dataKey: "swiggyData",
+        syncKey: "lastSyncSwiggy",
+        color: "#FC8019",
+        pieColors: ['#FC8019', '#E37417', '#C46210', '#FFA959', '#FFC58A']
+    }
+};
+
 function switchPlatform(platform) {
-    // On first load, always proceed even if platform matches default
     if (!isFirstLoad && currentPlatform === platform) return;
-
-    isFirstLoad = false; // Mark that we've loaded once
-
+    isFirstLoad = false;
     currentPlatform = platform;
+    const config = PLATFORMS[platform];
 
-    // UI Updates
     document.querySelectorAll('.platform-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`btn-${platform}`).classList.add('active');
 
-    // Theme Update (CSS)
-    if (platform === 'swiggy') {
-        document.body.classList.add('swiggy-theme');
-        document.querySelector('.logo h2').textContent = "Swiggy Tracker";
-    } else {
-        document.body.classList.remove('swiggy-theme');
-        document.querySelector('.logo h2').textContent = "Zomato Tracker";
-    }
+    if (platform === 'swiggy') document.body.classList.add('swiggy-theme');
+    else document.body.classList.remove('swiggy-theme');
 
-    // Reset Data
+    document.querySelector('.logo h2').textContent = `${config.name} Tracker`;
+
     allOrders = [];
-    processOrders([]); // Clear UI first
-
-    // Reload Data
+    processOrders([]);
     loadData();
 }
 
 function loadData() {
-    const dataKey = currentPlatform === 'swiggy' ? 'swiggyData' : 'zomatoData';
-    const syncKey = currentPlatform === 'swiggy' ? 'lastSyncSwiggy' : 'lastSyncZomato';
-
-    // Legacy fallback for Zomato
-    const keys = [dataKey, syncKey];
+    const config = PLATFORMS[currentPlatform];
+    const keys = [config.dataKey, config.syncKey];
     if (currentPlatform === 'zomato') keys.push('orders');
 
     chrome.storage.local.get(keys, (result) => {
-        let orders = result[dataKey];
+        let orders = result[config.dataKey];
 
-        // Migration check for Zomato
         if (currentPlatform === 'zomato' && !orders && result.orders) {
             orders = result.orders;
             chrome.storage.local.set({ zomatoData: orders });
         }
 
-        const lastSync = result[syncKey] || (currentPlatform === 'zomato' ? result.lastSync : null);
-
-        if (lastSync) {
-            const syncDate = new Date(lastSync);
-            const istTime = syncDate.toLocaleString('en-IN', {
-                timeZone: 'Asia/Kolkata',
-                dateStyle: 'medium',
-                timeStyle: 'short'
-            });
-            document.getElementById('sync-status').textContent = `Last synced: ${istTime}`;
-        } else {
-            document.getElementById('sync-status').textContent = `Last synced: Never`;
-        }
+        const lastSync = result[config.syncKey] || (currentPlatform === 'zomato' ? result.lastSync : null);
+        const syncStatusMsg = lastSync
+            ? `Last synced: ${new Date(lastSync).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })}`
+            : "Last synced: Never";
+        document.getElementById('sync-status').textContent = syncStatusMsg;
 
         if (orders && orders.length > 0) {
-            // DEDUPLICATION STEP: Ensure NO duplicates in storage
+            // Deduplicate (Still useful as a safety measure)
             const seenIds = new Set();
             const uniqueOrders = [];
             let hadDuplicates = false;
@@ -229,34 +226,19 @@ function loadData() {
 
             if (hadDuplicates) {
                 const update = {};
-                update[dataKey] = uniqueOrders;
+                update[config.dataKey] = uniqueOrders;
                 chrome.storage.local.set(update);
                 orders = uniqueOrders;
             }
 
-            allOrders = orders.map(o => {
-                let dateStr = o.orderDate;
-                if (dateStr && typeof dateStr === 'string' && dateStr.includes(' at ')) {
-                    dateStr = dateStr.replace(' at ', ' ');
-                }
-
-                let cost = 0;
-                if (typeof o.totalCost === 'string') {
-                    cost = parseFloat(o.totalCost.replace(/[^0-9.]/g, ''));
-                } else {
-                    cost = o.totalCost;
-                }
-
-                return {
-                    ...o,
-                    totalCost: cost, // Normalize for internal use
-                    parsedDate: new Date(dateStr || Date.now())
-                };
-            }).filter(o => !isNaN(o.parsedDate));
+            allOrders = orders.map(o => ({
+                ...o,
+                parsedDate: new Date(o.orderDate)
+            })).filter(o => !isNaN(o.parsedDate));
 
             applyDateFilter();
         } else {
-            processOrders([]); // Clear UI
+            processOrders([]);
         }
     });
 }
@@ -332,102 +314,108 @@ function processOrders(orders) {
 }
 
 function renderCharts(monthlyData, restaurantData, timeOfDayData) {
-    // Destroy existing charts to prevent canvas reuse errors
-    if (charts.monthly) charts.monthly.destroy();
-    if (charts.category) charts.category.destroy();
-    if (charts.timeOfDay) charts.timeOfDay.destroy();
-
-    const isSwiggy = currentPlatform === 'swiggy'; // Define it here!
+    const config = PLATFORMS[currentPlatform];
 
     // Monthly Chart
-    const ctx = document.getElementById('monthlyChart').getContext('2d');
-    const sortedMonths = Object.keys(monthlyData).sort((a, b) => {
-        return new Date("1 " + a) - new Date("1 " + b);
-    });
+    const sortedMonths = Object.keys(monthlyData).sort((a, b) => new Date("1 " + a) - new Date("1 " + b));
+    const monthlyLabels = sortedMonths;
+    const monthlyValues = sortedMonths.map(m => monthlyData[m]);
 
-    const barColor = isSwiggy ? '#FC8019' : '#E23744';
-
-    charts.monthly = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: sortedMonths,
-            datasets: [{
-                label: 'Monthly Spending (₹)',
-                data: sortedMonths.map(m => monthlyData[m]),
-                backgroundColor: barColor,
-                borderRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: {
-                padding: {
-                    bottom: 20
-                }
+    if (charts.monthly) {
+        charts.monthly.data.labels = monthlyLabels;
+        charts.monthly.data.datasets[0].data = monthlyValues;
+        charts.monthly.data.datasets[0].backgroundColor = config.color;
+        charts.monthly.update();
+    } else {
+        const ctx = document.getElementById('monthlyChart').getContext('2d');
+        charts.monthly = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: monthlyLabels,
+                datasets: [{
+                    label: 'Monthly Spending (₹)',
+                    data: monthlyValues,
+                    backgroundColor: config.color,
+                    borderRadius: 4
+                }]
             },
-            scales: { y: { beginAtZero: true } }
-        }
-    });
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { bottom: 20, top: 10, left: 10, right: 10 } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
 
-    // Category/Restaurant Pie Chart
-    const ctxPie = document.getElementById('categoryChart').getContext('2d');
+    // Category/Restaurant Chart
     const sortedRes = Object.entries(restaurantData).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const resLabels = sortedRes.map(x => x[0]);
+    const resValues = sortedRes.map(x => x[1]);
 
-    const swiggyColors = ['#FC8019', '#E37417', '#C46210', '#FFA959', '#FFC58A'];
-    const zomatoColors = ['#CB202D', '#2D2D2D', '#FF7E8B', '#E23744', '#B5B5B5'];
-
-    charts.category = new Chart(ctxPie, {
-        type: 'doughnut',
-        data: {
-            labels: sortedRes.map(x => x[0]),
-            datasets: [{
-                data: sortedRes.map(x => x[1]),
-                backgroundColor: isSwiggy ? swiggyColors : zomatoColors
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: {
-                padding: {
-                    bottom: 20
-                }
+    if (charts.category) {
+        charts.category.data.labels = resLabels;
+        charts.category.data.datasets[0].data = resValues;
+        charts.category.data.datasets[0].backgroundColor = config.pieColors;
+        charts.category.update();
+    } else {
+        const ctxPie = document.getElementById('categoryChart').getContext('2d');
+        charts.category = new Chart(ctxPie, {
+            type: 'doughnut',
+            data: {
+                labels: resLabels,
+                datasets: [{ data: resValues, backgroundColor: config.pieColors }]
             },
-            plugins: {
-                legend: {
-                    position: 'bottom'
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { bottom: 30, top: 10 } },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 12, padding: 15 }
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
-    // Time of Day Chart (Polar Area)
-    const ctxTime = document.getElementById('timeOfDayChart').getContext('2d');
-    const todColors = isSwiggy ? ['#FFC58A', '#FFA959', '#FC8019', '#2D2D2D'] : ['#FFE5E7', '#FF9AA5', '#E23744', '#2D2D2D'];
+    // Time of Day Chart
+    const todLabels = Object.keys(timeOfDayData);
+    const todValues = Object.values(timeOfDayData);
+    const todColors = currentPlatform === 'swiggy'
+        ? ['#FFC58A', '#FFA959', '#FC8019', '#2D2D2D']
+        : ['#FFE5E7', '#FF9AA5', '#E23744', '#2D2D2D'];
 
-    charts.timeOfDay = new Chart(ctxTime, {
-        type: 'polarArea',
-        data: {
-            labels: Object.keys(timeOfDayData),
-            datasets: [{
-                label: 'Orders',
-                data: Object.values(timeOfDayData),
-                backgroundColor: todColors
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            layout: { padding: { bottom: 30 } },
-            scales: {
-                r: {
-                    pointLabels: { display: true, centerPointLabels: true, font: { size: 12 } },
-                    ticks: { backdropColor: 'transparent' }
+    if (charts.timeOfDay) {
+        charts.timeOfDay.data.labels = todLabels;
+        charts.timeOfDay.data.datasets[0].data = todValues;
+        charts.timeOfDay.data.datasets[0].backgroundColor = todColors;
+        charts.timeOfDay.update();
+    } else {
+        const ctxTime = document.getElementById('timeOfDayChart').getContext('2d');
+        charts.timeOfDay = new Chart(ctxTime, {
+            type: 'polarArea',
+            data: {
+                labels: todLabels,
+                datasets: [{ data: todValues, backgroundColor: todColors }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { bottom: 40, top: 10 } },
+                scales: {
+                    r: {
+                        pointLabels: { display: true },
+                        ticks: { backdropColor: 'transparent', display: false }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, padding: 15 } }
                 }
             }
-        }
-    });
+        });
+    }
 }
 
 function renderTopRestaurants(restaurantData) {

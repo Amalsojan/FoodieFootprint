@@ -70,7 +70,7 @@ async function fetchZomatoOrders() {
             const failureKeywords = [
                 "failed", "cancelled", "unpaid", "returned", "payment failed",
                 "retry", "unsuccessful", "pending", "aborted", "incomplete",
-                "void", "rejected", "payment pending", "not paid"
+                "void", "rejected", "payment pending", "not paid", "refunded", "refund"
             ];
             const successKeywords = ["delivered", "completed", "success", "picked up"];
 
@@ -84,11 +84,14 @@ async function fetchZomatoOrders() {
 
                 const statusText = String(rawStatus || "").toLowerCase();
 
+                const cost = typeof order.totalCost === "string" ? parseFloat(order.totalCost.replace(/[^0-9.]/g, "")) : order.totalCost;
+                const date = order.orderDate ? new Date(order.orderDate.replace(" at ", " ")).toISOString() : new Date().toISOString();
+
                 // Map the order
                 return {
                     orderId: order.orderId,
-                    totalCost: order.totalCost,
-                    orderDate: order.orderDate,
+                    totalCost: isNaN(cost) ? 0 : cost,
+                    orderDate: date,
                     restaurantName: order.resInfo ? order.resInfo.name : "Unknown",
                     dishString: order.dishString || "",
                     status: statusText
@@ -190,13 +193,29 @@ async function fetchSwiggyOrders() {
                 break;
             }
 
-            const processedOrders = newOrders.map(order => ({
-                orderId: order.order_id,
-                totalCost: "₹" + (order.order_total || 0),
-                orderDate: new Date(order.order_time).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true }).replace(" at ", ", "),
-                restaurantName: order.restaurant_name,
-                dishString: order.order_items ? order.order_items.map(i => i.name).join(", ") : ""
-            }));
+            const failureKeywords = [
+                "failed", "cancelled", "unpaid", "returned", "payment failed",
+                "retry", "unsuccessful", "pending", "aborted", "incomplete",
+                "void", "rejected", "payment pending", "not paid", "refunded", "refund"
+            ];
+
+            const processedOrders = newOrders.map(order => {
+                const cost = order.order_total || 0;
+                const date = order.order_time ? new Date(order.order_time).toISOString() : new Date().toISOString();
+                const statusText = (order.order_status || "").toLowerCase();
+
+                return {
+                    orderId: order.order_id,
+                    totalCost: cost,
+                    orderDate: date,
+                    restaurantName: order.restaurant_name || "Unknown",
+                    dishString: order.order_items ? order.order_items.map(i => i.name).join(", ") : "",
+                    status: statusText
+                };
+            }).filter(order => {
+                const isFailure = failureKeywords.some(kw => order.status.includes(kw));
+                return !isFailure;
+            });
 
             allOrders = allOrders.concat(processedOrders);
 
