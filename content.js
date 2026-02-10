@@ -49,30 +49,74 @@ async function fetchZomatoOrders() {
 
             const data = await response.json();
 
-            // Check structure of response (based on typical Zomato web responses)
-            // Usually data.entities.ORDER or similar
-            // Adjusting based on common detailed structures found in research/experience
-            // Since we can't verify exact structure without login, we will try to make this robust or user-editable if it breaks.
-            // For now, assuming a standard structure or we might need to parse HTML if API fails.
-            // Actually, webroutes/user/orders usually returns JSON.
+            // Extract raw orders from the response
+            const rawOrders = data.entities && data.entities.ORDER ? Object.values(data.entities.ORDER) : [];
 
-            const rawOrders = data.entities ? Object.values(data.entities.ORDER) : [];
-
-            const processedOrders = rawOrders.map(order => ({
-                orderId: order.orderId,
-                totalCost: order.totalCost, // Usually formatted string "₹1,200"
-                orderDate: order.orderDate, // Sometimes timestamp or string
-                restaurantName: order.resInfo ? order.resInfo.name : "Unknown",
-                dishString: order.dishString || "" // Extract dish details
-            }));
-
-            if (processedOrders.length === 0) {
+            if (rawOrders.length === 0) {
                 hasMore = false;
-            } else {
+                break;
+            }
+
+            // DUPLICATE CHECK: Only process orders we haven't seen in THIS session
+            const existingIds = new Set(allOrders.map(o => o.orderId));
+            const newOrders = rawOrders.filter(o => !existingIds.has(o.orderId));
+
+            if (newOrders.length === 0) {
+                hasMore = false;
+                break;
+            }
+
+            // MAPPING & FILTERING: Use a blacklist approach
+            const failureKeywords = [
+                "failed", "cancelled", "unpaid", "returned", "payment failed",
+                "retry", "unsuccessful", "pending", "aborted", "incomplete",
+                "void", "rejected", "payment pending", "not paid"
+            ];
+            const successKeywords = ["delivered", "completed", "success", "picked up"];
+
+            const processedOrders = newOrders.map(order => {
+                let rawStatus = "";
+                if (order.orderStatus && order.orderStatus.statusText) {
+                    rawStatus = order.orderStatus.statusText;
+                } else if (order.status) {
+                    rawStatus = order.status;
+                }
+
+                const statusText = String(rawStatus || "").toLowerCase();
+
+                // Map the order
+                return {
+                    orderId: order.orderId,
+                    totalCost: order.totalCost,
+                    orderDate: order.orderDate,
+                    restaurantName: order.resInfo ? order.resInfo.name : "Unknown",
+                    dishString: order.dishString || "",
+                    status: statusText
+                };
+            }).filter(order => {
+                const statusText = order.status;
+
+                // Is it a known failure?
+                // Numeric "1" identified as failure/incomplete from console logs
+                const isFailure = failureKeywords.some(kw => statusText.includes(kw)) || statusText === "1";
+                // Is it an explicit success?
+                // Numeric "6" identified as successful from console logs
+                const isSuccess = successKeywords.some(kw => statusText.includes(kw)) || statusText === "6";
+
+                // If it's a known failure, block it. Otherwise, allow it (Defensive approach)
+                return !isFailure;
+            });
+
+            if (processedOrders.length > 0) {
                 allOrders = allOrders.concat(processedOrders);
-                page++;
-                // Safety break
-                if (page > 20) hasMore = false;
+            }
+
+            page++;
+
+            // Safety break
+            if (page > 50) {
+                console.warn("Reached page limit (50). Stopping.");
+                hasMore = false;
             }
 
             // Random delay to be nice to the server
@@ -81,8 +125,8 @@ async function fetchZomatoOrders() {
             // Send Progress
             chrome.runtime.sendMessage({
                 action: "sync_progress",
-                message: `Fetched Page ${page} (${allOrders.length} orders so far)...`,
-                progress: 50 // Indeterminate or estimated
+                message: `Fetched Page ${page - 1} (${allOrders.length} orders so far)...`,
+                progress: 50
             });
 
         } catch (e) {
@@ -91,8 +135,6 @@ async function fetchZomatoOrders() {
         }
     }
 
-    // Fallback: If API returns nothing (maybe different structure or auth issue), try to parse DOM if current page is orders page?
-    // Use what we have.
     return allOrders;
 }
 

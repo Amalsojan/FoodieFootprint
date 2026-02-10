@@ -213,14 +213,31 @@ function loadData() {
         }
 
         if (orders && orders.length > 0) {
+            // DEDUPLICATION STEP: Ensure NO duplicates in storage
+            const seenIds = new Set();
+            const uniqueOrders = [];
+            let hadDuplicates = false;
+
+            orders.forEach(o => {
+                if (!seenIds.has(o.orderId)) {
+                    seenIds.add(o.orderId);
+                    uniqueOrders.push(o);
+                } else {
+                    hadDuplicates = true;
+                }
+            });
+
+            if (hadDuplicates) {
+                const update = {};
+                update[dataKey] = uniqueOrders;
+                chrome.storage.local.set(update);
+                orders = uniqueOrders;
+            }
+
             allOrders = orders.map(o => {
                 let dateStr = o.orderDate;
                 if (dateStr && typeof dateStr === 'string' && dateStr.includes(' at ')) {
                     dateStr = dateStr.replace(' at ', ' ');
-                }
-                // Swiggy date fix if strictly "October 23, 2025 at..." wasn't matched perfectly
-                if (dateStr && typeof dateStr === 'string' && dateStr.includes(',')) {
-                    // Standard parsable, but good to be sure
                 }
 
                 let cost = 0;
