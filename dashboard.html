@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zomato Expense Tracker</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <script src="chart.js"></script>
+</head>
+
+<body>
+    <div class="sidebar">
+        <div class="logo">
+            <h2>Zomato Tracker</h2>
+        </div>
+        <div class="platform-switcher">
+            <button id="btn-zomato" class="platform-btn active">Zomato</button>
+            <button id="btn-swiggy" class="platform-btn">Swiggy</button>
+        </div>
+        <nav>
+            <button id="nav-dashboard" class="active">Dashboard</button>
+        </nav>
+        <div class="sync-section">
+            <button id="sync-btn" class="primary-btn">Sync Data</button>
+            <div id="progress-container" class="hidden">
+                <div class="progress-bar">
+                    <div id="progress-fill"></div>
+                </div>
+                <div id="progress-text">Initializing...</div>
+            </div>
+            <p id="sync-status">Last synced: Never</p>
+        </div>
+    </div>
+
+    <main class="content">
+        <header>
+            <h1>Your Food Journey</h1>
+        </header>
+
+        <section class="filters-section">
+            <div class="filter-group">
+                <label>Date Range:</label>
+                <input type="date" id="start-date">
+                <span>to</span>
+                <input type="date" id="end-date">
+            </div>
+            <div class="filter-buttons">
+                <button class="filter-btn" data-range="30">Last 30 Days</button>
+                <button class="filter-btn" data-range="90">Last 3 Months</button>
+                <button class="filter-btn" data-range="365">Last 1 Year</button>
+                <button class="filter-btn active" data-range="all">All Time</button>
+            </div>
+        </section>
+
+        <section class="overview-cards">
+            <div class="card">
+                <h3>Total Spent</h3>
+                <p class="big-number" id="total-spent">₹0</p>
+            </div>
+            <div class="card">
+                <h3>Total Orders</h3>
+                <p class="big-number" id="total-orders">0</p>
+            </div>
+            <div class="card">
+                <h3>Avg Order Value</h3>
+                <p class="big-number" id="avg-order">₹0</p>
+            </div>
+        </section>
+
+        <section class="charts-section">
+            <div class="chart-container large">
+                <h3>Monthly Spending</h3>
+                <canvas id="monthlyChart"></canvas>
+            </div>
+            <div class="chart-container small">
+                <h3>Category Split</h3>
+                <canvas id="categoryChart"></canvas>
+            </div>
+        </section>
+
+        <section class="charts-section secondary">
+            <div class="chart-container medium">
+                <h3>Orders by Time of Day</h3>
+                <div class="chart-content-wrapper">
+                    <canvas id="timeOfDayChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section class="top-list-section">
+            <h3>Favorite Food</h3>
+            <ul id="favorite-food-list" class="restaurant-list">
+                <!-- Items injected by JS -->
+            </ul>
+        </section>
+
+        <section class="top-list-section">
+            <h3>Top 10 Restaurants</h3>
+            <ul id="top-restaurants-list" class="restaurant-list">
+                <!-- Items injected by JS -->
+            </ul>
+        </section>
+
+        <footer class="app-footer">
+            <p>Made with <span class="heart">❤️</span> by <b>Amal Sojan</b> from Kerala</p>
+        </footer>
+    </main>
+
+    <script src="dashboard.js"></script>
+</body>
+
+</html>
